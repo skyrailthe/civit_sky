@@ -1,0 +1,4 @@
+# Shell-скрипты и Dockerfile должны быть с LF — иначе сломаются на Linux-воркере.
+*.sh text eol=lf
+Dockerfile text eol=lf
+worker/entrypoint.sh text eol=lf
