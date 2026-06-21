@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startJob } from "@/lib/runpod";
 import type { GenerateRequest } from "@/lib/types";
+import { isCompatible } from "@/lib/compatibility";
 
 export async function POST(req: NextRequest) {
   let body: GenerateRequest;
@@ -16,6 +17,21 @@ export async function POST(req: NextRequest) {
   if (!body.checkpoint?.downloadUrl) {
     return NextResponse.json(
       { error: "checkpoint is required" },
+      { status: 400 }
+    );
+  }
+
+  // серверная защита: не доверяем клиенту — отсекаем несовместимые доп. источники
+  const incompatible = (body.extras ?? []).filter(
+    (e) => !isCompatible(body.checkpoint.baseModel, e.baseModel)
+  );
+  if (incompatible.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Несовместимые доп. источники: " +
+          incompatible.map((e) => e.name).join(", "),
+      },
       { status: 400 }
     );
   }

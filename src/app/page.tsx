@@ -9,6 +9,7 @@ import type {
   GenerateRequest,
   JobResult,
 } from "@/lib/types";
+import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
 
 const RATIOS: AspectRatio[] = ["2:3", "1:1", "3:2"];
 
@@ -81,15 +82,38 @@ export default function Home() {
         downloadUrl,
         preview,
       });
+      // при смене модели выкидываем доп. источники, которые стали несовместимы
+      setExtras((prev) => {
+        const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
+        if (kept.length !== prev.length) {
+          setError(
+            "Несовместимые доп. источники убраны после смены модели"
+          );
+        }
+        return kept;
+      });
     } else {
+      // нельзя добавить доп. источник без выбранной модели
+      if (!checkpoint) {
+        setError("Сначала выбери модель (checkpoint)");
+        return;
+      }
+      // блокируем несовместимое с текущим чекпойнтом
+      const reason = incompatibilityReason(checkpoint.baseModel, v.baseModel);
+      if (reason) {
+        setError(reason);
+        return;
+      }
       // не добавляем дубликаты
       if (extras.some((e) => e.modelVersionId === v.id)) return;
+      setError(null);
       setExtras((prev) => [
         ...prev,
         {
           modelVersionId: v.id,
           name: m.name,
           type: m.type,
+          baseModel: v.baseModel,
           downloadUrl,
           strength: 1.0,
           trainedWords: v.trainedWords,
@@ -327,18 +351,29 @@ export default function Home() {
 
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
-                const img = m.modelVersions?.[0]?.images?.[0]?.url;
+                const v = m.modelVersions?.[0];
+                const img = v?.images?.[0]?.url;
                 const selected =
                   m.type === "Checkpoint"
-                    ? checkpoint?.modelVersionId === m.modelVersions?.[0]?.id
-                    : extras.some(
-                        (e) => e.modelVersionId === m.modelVersions?.[0]?.id
-                      );
+                    ? checkpoint?.modelVersionId === v?.id
+                    : extras.some((e) => e.modelVersionId === v?.id);
+                // несовместимость считаем только для доп. источников при выбранной модели
+                const incompatible =
+                  m.type !== "Checkpoint" &&
+                  !!checkpoint &&
+                  !isCompatible(checkpoint.baseModel, v?.baseModel);
                 return (
                   <div
                     key={m.id}
-                    className={`card ${selected ? "selected" : ""}`}
-                    onClick={() => pickModel(m)}
+                    className={`card ${selected ? "selected" : ""} ${
+                      incompatible ? "incompatible" : ""
+                    }`}
+                    onClick={() => !incompatible && pickModel(m)}
+                    title={
+                      incompatible
+                        ? `Несовместимо с ${checkpoint?.baseModel}`
+                        : undefined
+                    }
                   >
                     {img ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -349,7 +384,10 @@ export default function Home() {
                     <div className="card-body">
                       <div className="card-title">{m.name}</div>
                       <div className="card-meta">
-                        {m.type} · {m.modelVersions?.[0]?.baseModel}
+                        {m.type} · {v?.baseModel}
+                        {incompatible && (
+                          <span className="badge-incompat">несовместимо</span>
+                        )}
                       </div>
                     </div>
                   </div>

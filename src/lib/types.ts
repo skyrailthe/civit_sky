@@ -59,6 +59,7 @@ export interface ExtraResource {
   modelVersionId: number;
   name: string;
   type: CivitaiModelType;
+  baseModel: string; // нужен для проверки совместимости с чекпойнтом
   downloadUrl: string;
   strength?: number; // вес для LoRA, по умолчанию 1.0
   trainedWords?: string[];

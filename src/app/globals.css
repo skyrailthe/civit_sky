@@ -170,6 +170,26 @@ textarea {
   border-color: var(--accent);
 }
 
+.card.incompatible {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.card.incompatible:hover {
+  border-color: var(--border);
+}
+
+.badge-incompat {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.18);
+  color: #ff6b6b;
+  font-size: 10px;
+}
+
 .card img {
   width: 100%;
   aspect-ratio: 3 / 4;
