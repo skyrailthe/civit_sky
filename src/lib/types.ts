@@ -96,5 +96,6 @@ export interface JobResult {
   id: string;
   status: JobStatus;
   images?: string[]; // base64 data URLs или внешние URL
-  error?: string;
+  error?: string; // короткое сообщение для UI
+  errorDetails?: string; // полный текст/стектрейс воркера (для отладки)
 }

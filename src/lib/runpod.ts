@@ -84,15 +84,72 @@ export async function getJob(id: string): Promise<JobResult> {
       .map(imageToSrc)
       .filter((s): s is string => Boolean(s));
     result.images = srcs;
+    // worker-comfyui может вернуть COMPLETED, но с ошибкой внутри output
     if (srcs.length === 0) {
-      result.error = "Воркер не вернул изображений";
+      const detail = extractError(data);
+      result.error = detail
+        ? "Воркер вернул ошибку вместо изображения"
+        : "Воркер не вернул изображений";
+      result.errorDetails = detail ?? JSON.stringify(data.output ?? data);
+      console.error(`[runpod ${id}] COMPLETED без изображений:`, result.errorDetails);
     }
   }
   if (status === "FAILED" || status === "TIMED_OUT") {
-    result.error =
-      typeof data.error === "string"
-        ? data.error
-        : "Generation failed on worker";
+    const detail = extractError(data);
+    result.error = detail
+      ? firstLine(detail)
+      : status === "TIMED_OUT"
+        ? "Задача превысила лимит времени"
+        : "Генерация упала на воркере";
+    result.errorDetails = detail ?? JSON.stringify(data, null, 2);
+    console.error(`[runpod ${id}] ${status}:`, result.errorDetails);
   }
   return result;
+}
+
+/** Достаёт человекочитаемую ошибку из всех мест, где RunPod/ComfyUI её прячут. */
+function extractError(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+
+  // 1. Прямое поле error
+  const direct = stringifyMaybe(d.error);
+  if (direct) return direct;
+
+  // 2. Внутри output (worker-comfyui кладёт сюда {error, message, ...})
+  const out = d.output;
+  if (out && typeof out === "object") {
+    const o = out as Record<string, unknown>;
+    const oErr = stringifyMaybe(o.error) ?? stringifyMaybe(o.message);
+    if (oErr) return oErr;
+    // ComfyUI prompt-validation: node_errors / errors
+    if (o.node_errors) return JSON.stringify(o.node_errors);
+    if (o.errors) return JSON.stringify(o.errors);
+  }
+
+  // 3. Иногда строкой прямо в output
+  const outStr = stringifyMaybe(out);
+  if (outStr) return outStr;
+
+  return null;
+}
+
+function stringifyMaybe(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v.trim() || null;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.message === "string") return o.message;
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return null;
+    }
+  }
+  return String(v);
+}
+
+function firstLine(s: string): string {
+  const line = s.split("\n")[0].trim();
+  return line.length > 200 ? line.slice(0, 200) + "…" : line;
 }

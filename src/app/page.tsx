@@ -155,8 +155,11 @@ export default function Home() {
           ) {
             stopPolling();
             setGenerating(false);
-            if (data.status !== "COMPLETED") {
-              setError(data.error || `Задача завершилась: ${data.status}`);
+            // ошибка возможна и при COMPLETED (воркер вернул error вместо картинки)
+            if (data.error) {
+              setError(data.error);
+            } else if (data.status !== "COMPLETED") {
+              setError(`Задача завершилась: ${data.status}`);
             }
           }
         } catch {
@@ -305,8 +308,38 @@ export default function Home() {
             </div>
 
             {error && (
-              <div style={{ color: "#ff6b6b", fontSize: 13, marginTop: 10 }}>
-                {error}
+              <div style={{ marginTop: 10 }}>
+                <div style={{ color: "#ff6b6b", fontSize: 13 }}>{error}</div>
+                {job?.errorDetails && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary
+                      style={{
+                        cursor: "pointer",
+                        fontSize: 12,
+                        color: "var(--muted)",
+                      }}
+                    >
+                      Подробности ошибки воркера
+                    </summary>
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        fontSize: 11,
+                        color: "var(--muted)",
+                        background: "var(--panel-2)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: 8,
+                        marginTop: 6,
+                        maxHeight: 220,
+                        overflow: "auto",
+                      }}
+                    >
+                      {job.errorDetails}
+                    </pre>
+                  </details>
+                )}
               </div>
             )}
           </div>
