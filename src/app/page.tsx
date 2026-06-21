@@ -14,6 +14,7 @@ import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
 const RATIOS: AspectRatio[] = ["2:3", "1:1", "3:2"];
 
 interface PickedCheckpoint {
+  modelId: number;
   modelVersionId: number;
   name: string;
   baseModel: string;
@@ -77,6 +78,7 @@ export default function Home() {
 
     if (m.type === "Checkpoint") {
       setCheckpoint({
+        modelId: m.id,
         modelVersionId: v.id,
         name: m.name,
         baseModel: v.baseModel,
@@ -111,6 +113,7 @@ export default function Home() {
       setExtras((prev) => [
         ...prev,
         {
+          modelId: m.id,
           modelVersionId: v.id,
           name: m.name,
           type: m.type,
@@ -192,6 +195,7 @@ export default function Home() {
       negativePrompt: negative,
       aspectRatio: ratio,
       checkpoint: {
+        modelId: checkpoint.modelId,
         modelVersionId: checkpoint.modelVersionId,
         name: checkpoint.name,
         baseModel: checkpoint.baseModel,

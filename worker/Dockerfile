@@ -1,18 +1,24 @@
 # Кастомный ComfyUI-воркер для Civit Sky.
-# Берём официальный runpod worker-comfyui (базовый образ с ComfyUI + handler)
-# и добавляем ноду AssetDownloader, чтобы качать модели/LoRA с Civitai по URL.
-#
-# Базовые теги: см. https://github.com/runpod-workers/worker-comfyui
-# Берём "base" вариант — без запечённых моделей, всё качаем на лету.
+# База: официальный runpod worker-comfyui (ComfyUI + RunPod handler), "base"
+# вариант без запечённых моделей — всё качаем с Civitai на лету.
 FROM runpod/worker-comfyui:5.8.6-base
 
-# Кастомная нода загрузки ассетов по URL (Civitai / HuggingFace / прямые ссылки)
-# Нода — OUTPUT_NODE, поэтому выполняется всегда и кладёт файл в models/<save_to>.
+# Нода EasyCivitai-XTNodes: качает чекпойнт/LoRA по URL И сразу отдаёт MODEL/CLIP.
+# Это даёт ЯВНУЮ зависимость в графе (LoraLoader принимает model/clip на вход),
+# поэтому нет race condition «нода загрузки vs загрузчик» (был у AssetDownloader).
 RUN cd /comfyui/custom_nodes \
-    && git clone https://github.com/ServiceStack/comfy-asset-downloader.git \
-    && if [ -f comfy-asset-downloader/requirements.txt ]; then \
-         pip install --no-cache-dir -r comfy-asset-downloader/requirements.txt; \
+    && git clone https://github.com/X-T-E-R/ComfyUI-EasyCivitai-XTNodes.git \
+    && if [ -f ComfyUI-EasyCivitai-XTNodes/requirements.txt ]; then \
+         pip install --no-cache-dir -r ComfyUI-EasyCivitai-XTNodes/requirements.txt; \
        fi
 
-# CIVITAI_TOKEN пробрасывается в Environment Variables эндпоинта в RunPod,
-# а в workflow токен указывается как "$CIVITAI_TOKEN" — нода подставит значение.
+# Нода читает токен Civitai из .secrets.toml ([civitai] token=...), а не из env.
+# Чтобы не запекать токен в образ, генерируем этот файл при старте контейнера
+# из переменной окружения CIVITAI_TOKEN (задаётся в Environment Variables эндпоинта).
+# ВАЖНО: путь к entrypoint.sh — относительно build context. На RunPod build
+# context = корень репо, поэтому путь "worker/entrypoint.sh".
+COPY worker/entrypoint.sh /civitsky-entrypoint.sh
+RUN chmod +x /civitsky-entrypoint.sh
+
+ENTRYPOINT ["/civitsky-entrypoint.sh"]
+CMD ["/start.sh"]

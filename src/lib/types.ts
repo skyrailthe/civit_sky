@@ -56,6 +56,7 @@ export interface CivitaiModel {
 
 export interface ExtraResource {
   // дополнительный источник (LoRA / embedding / VAE)
+  modelId: number; // id модели Civitai — нужен для пейдж-URL ноды загрузки
   modelVersionId: number;
   name: string;
   type: CivitaiModelType;
@@ -71,6 +72,7 @@ export interface GenerateRequest {
   aspectRatio: AspectRatio;
   // основной чекпойнт
   checkpoint: {
+    modelId: number;
     modelVersionId: number;
     name: string;
     baseModel: string;

@@ -112,14 +112,15 @@ function extractError(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
 
-  // 1. Прямое поле error
-  const direct = stringifyMaybe(d.error);
-  if (direct) return direct;
-
-  // 2. Внутри output (worker-comfyui кладёт сюда {error, message, ...})
+  // 1. Внутри output — самое детальное (проверяем ПЕРВЫМ, т.к. верхний
+  //    data.error часто просто "Job processing failed" без деталей).
   const out = d.output;
   if (out && typeof out === "object") {
     const o = out as Record<string, unknown>;
+    // worker-comfyui: output.details — массив строк с ошибками выполнения графа
+    if (Array.isArray(o.details) && o.details.length > 0) {
+      return o.details.map((x) => stringifyMaybe(x) ?? "").join("\n").trim();
+    }
     const oErr = stringifyMaybe(o.error) ?? stringifyMaybe(o.message);
     if (oErr) return oErr;
     // ComfyUI prompt-validation: node_errors / errors
@@ -127,9 +128,13 @@ function extractError(data: unknown): string | null {
     if (o.errors) return JSON.stringify(o.errors);
   }
 
-  // 3. Иногда строкой прямо в output
+  // 2. Строкой прямо в output
   const outStr = stringifyMaybe(out);
   if (outStr) return outStr;
+
+  // 3. Верхнеуровневый error — последним (обычно общая заглушка)
+  const direct = stringifyMaybe(d.error);
+  if (direct) return direct;
 
   return null;
 }
