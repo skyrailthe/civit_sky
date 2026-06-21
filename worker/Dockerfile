@@ -3,6 +3,11 @@
 # вариант без запечённых моделей — всё качаем с Civitai на лету.
 FROM runpod/worker-comfyui:5.8.6-base
 
+# Нода XTNodes качает файлы через aria2c — ставим его в образ.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends aria2 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Нода EasyCivitai-XTNodes: качает чекпойнт/LoRA по URL И сразу отдаёт MODEL/CLIP.
 # Это даёт ЯВНУЮ зависимость в графе (LoraLoader принимает model/clip на вход),
 # поэтому нет race condition «нода загрузки vs загрузчик» (был у AssetDownloader).

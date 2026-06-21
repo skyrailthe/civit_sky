@@ -43,6 +43,9 @@ export function buildComfyWorkflow(req: GenerateRequest): Workflow {
     class_type: "CivitaiCheckpointLoaderSimple",
     inputs: {
       url: civitaiPageUrl(req.checkpoint.modelId, req.checkpoint.modelVersionId),
+      // обязательные поля ноды (установленная в образе версия их требует):
+      override_trigger_words: "", // не переопределяем триггер-слова
+      preview_images: false, // на serverless превью-картинки не нужны
     },
   };
 
@@ -65,6 +68,8 @@ export function buildComfyWorkflow(req: GenerateRequest): Workflow {
         url: civitaiPageUrl(extra.modelId, extra.modelVersionId),
         strength_model: strength,
         strength_clip: strength,
+        override_trigger_words: "",
+        preview_images: false,
       },
     };
     modelRef = [lid, 0];
