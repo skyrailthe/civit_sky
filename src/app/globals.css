@@ -244,16 +244,28 @@ textarea {
   font-size: 13px;
 }
 
+.result-panel {
+  margin-bottom: 16px;
+  border-color: var(--accent);
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+}
+
 .result {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
+  margin-top: 8px;
 }
 
 .result img {
   width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
   border-radius: 10px;
   border: 1px solid var(--border);
+  background: #000;
 }
 
 .row {

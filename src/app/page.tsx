@@ -40,6 +40,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resultRef = useRef<HTMLDivElement | null>(null);
 
   const search = useCallback(async () => {
     setSearching(true);
@@ -189,6 +190,10 @@ export default function Home() {
     setError(null);
     setJob(null);
     setGenerating(true);
+    // прокрутим к блоку результата, чтобы он был сразу виден
+    requestAnimationFrame(() =>
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
 
     const body: GenerateRequest = {
       prompt,
@@ -349,8 +354,32 @@ export default function Home() {
           </div>
         </aside>
 
-        {/* Правая колонка — поиск моделей + результат */}
+        {/* Правая колонка — результат сверху + поиск моделей */}
         <main>
+          {(job || generating) && (
+            <div className="panel result-panel" ref={resultRef}>
+              <div className="label">
+                Результат{" "}
+                {job?.status && <span className="muted">· {job.status}</span>}
+              </div>
+              {generating && !job?.images && (
+                <div className="row">
+                  <span className="spinner" /> ждём воркер… (первый раз дольше —
+                  качаются модели)
+                </div>
+              )}
+              {job?.images && (
+                <div className="result">
+                  {job.images.map((src, i) => (
+                    // src уже готов (data: или http) — формирует runpod.ts
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={i} src={src} alt={`result ${i}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="panel">
             <div className="tabs">
               <div
@@ -438,31 +467,6 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          {(job || generating) && (
-            <div className="panel">
-              <div className="label">
-                Результат{" "}
-                {job?.status && (
-                  <span className="muted">· {job.status}</span>
-                )}
-              </div>
-              {generating && !job?.images && (
-                <div className="row">
-                  <span className="spinner" /> ждём воркер…
-                </div>
-              )}
-              {job?.images && (
-                <div className="result">
-                  {job.images.map((src, i) => (
-                    // src уже готов (data: или http) — формирует runpod.ts
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={i} src={src} alt={`result ${i}`} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </main>
       </div>
     </div>
