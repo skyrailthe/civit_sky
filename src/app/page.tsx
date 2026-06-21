@@ -44,8 +44,9 @@ export default function Home() {
     setSearching(true);
     setError(null);
     try {
+      // доп. источники: пока только LoRA (embeddings/TextualInversion не поддержаны)
       const types: CivitaiModelType[] =
-        tab === "checkpoint" ? ["Checkpoint"] : ["LORA", "LoCon", "TextualInversion"];
+        tab === "checkpoint" ? ["Checkpoint"] : ["LORA", "LoCon"];
       const sp = new URLSearchParams();
       if (query) sp.set("query", query);
       for (const t of types) sp.append("types", t);

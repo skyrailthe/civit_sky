@@ -63,7 +63,9 @@ export function buildComfyWorkflow(req: GenerateRequest): Workflow {
 
   const loraFiles: { file: string; strength: number }[] = [];
   for (const extra of req.extras) {
-    // обрабатываем только LoRA-подобные ресурсы
+    // Поддержаны только LoRA-подобные ресурсы. Embeddings (TextualInversion),
+    // VAE и пр. сюда не доходят — UI их не показывает, но на всякий случай
+    // защищаемся и здесь.
     if (extra.type !== "LORA" && extra.type !== "LoCon") continue;
     const file = fileNameFor(extra.modelVersionId, extra.downloadUrl);
     const dlId = nextId();
