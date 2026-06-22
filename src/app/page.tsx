@@ -24,6 +24,15 @@ function previewImage(v?: CivitaiModel["modelVersions"][number]): string | undef
 
 type ModelVersion = CivitaiModel["modelVersions"][number];
 
+// Видео-модели (Wan, SVD, AnimateDiff и т.п.) наш txt2img-пайплайн не поддерживает.
+function isVideoModel(m: CivitaiModel): boolean {
+  return (m.modelVersions ?? []).some((v) =>
+    /\b(wan|video|svd|animatediff|cogvideo|ltx|hunyuan video|mochi)\b/i.test(
+      v.baseModel ?? ""
+    )
+  );
+}
+
 // Бесплатная и доступная версия: опубликована, Public, не в платном раннем доступе.
 function isFreeVersion(ver: ModelVersion): boolean {
   if (ver.status && ver.status !== "Published") return false;
@@ -383,7 +392,7 @@ export default function Home() {
 
       <div className="layout">
         {/* Левая колонка — настройки */}
-        <aside>
+        <aside className="sidebar-sticky">
           <div className="panel">
             <div className="label">Выбранная модель</div>
             {checkpoint ? (
@@ -520,35 +529,35 @@ export default function Home() {
                 )}
               </div>
             )}
+
+            {(job || generating) && (
+              <div ref={resultRef} style={{ marginTop: 16 }}>
+                <div className="label">
+                  Результат{" "}
+                  {job?.status && <span className="muted">· {job.status}</span>}
+                </div>
+                {generating && !job?.images && (
+                  <div className="row">
+                    <span className="spinner" /> ждём воркер… (первый раз
+                    дольше — качаются модели)
+                  </div>
+                )}
+                {job?.images && (
+                  <div className="result">
+                    {job.images.map((src, i) => (
+                      // src уже готов (data: или http) — формирует runpod.ts
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={i} src={src} alt={`result ${i}`} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </aside>
 
-        {/* Правая колонка — результат сверху + поиск моделей */}
+        {/* Правая колонка — поиск моделей */}
         <main>
-          {(job || generating) && (
-            <div className="panel result-panel" ref={resultRef}>
-              <div className="label">
-                Результат{" "}
-                {job?.status && <span className="muted">· {job.status}</span>}
-              </div>
-              {generating && !job?.images && (
-                <div className="row">
-                  <span className="spinner" /> ждём воркер… (первый раз дольше —
-                  качаются модели)
-                </div>
-              )}
-              {job?.images && (
-                <div className="result">
-                  {job.images.map((src, i) => (
-                    // src уже готов (data: или http) — формирует runpod.ts
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={i} src={src} alt={`result ${i}`} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           <div className="panel">
             <div className="tabs">
               <div
@@ -587,6 +596,8 @@ export default function Home() {
 
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
+                // видео-модели наш пайплайн не поддерживает — скрываем
+                if (isVideoModel(m)) return null;
                 // для LoRA — совместимую версию; для чекпойнта — последнюю бесплатную
                 const v =
                   m.type === "Checkpoint"

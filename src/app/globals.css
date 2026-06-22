@@ -254,17 +254,27 @@ textarea {
   font-size: 13px;
 }
 
-.result-panel {
-  margin-bottom: 16px;
-  border-color: var(--accent);
+/* Левая панель прилипает при листании каталога; если контент выше экрана —
+   панель скроллится сама. */
+.sidebar-sticky {
   position: sticky;
   top: 12px;
-  z-index: 5;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+/* на узких экранах sticky мешает — отключаем */
+@media (max-width: 880px) {
+  .sidebar-sticky {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 .result {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 8px;
 }
