@@ -31,7 +31,13 @@ export interface CivitaiModelVersion {
   baseModel: string; // "SDXL 1.0", "Pony", "Illustrious", "SD 1.5", "Flux.1 D"...
   downloadUrl?: string;
   files: CivitaiFile[];
-  images: { url: string; width: number; height: number; nsfwLevel?: number }[];
+  images: {
+    url: string;
+    type?: "image" | "video";
+    width: number;
+    height: number;
+    nsfwLevel?: number;
+  }[];
   trainedWords?: string[];
 }
 
