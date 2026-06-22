@@ -8,6 +8,7 @@ import type {
   ExtraResource,
   GenerateRequest,
   JobResult,
+  JobStatus,
 } from "@/lib/types";
 import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
 
@@ -122,6 +123,11 @@ export default function Home() {
   const [history, setHistory] = useState<
     { id: string; src: string; prompt: string; at: number }[]
   >([]);
+
+  // индикатор прогресса (стоковый воркер не шлёт шаги — оцениваем по времени)
+  const [elapsed, setElapsed] = useState(0); // секунды с момента старта
+  const startedAtRef = useRef<number>(0);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -423,6 +429,10 @@ export default function Home() {
           ) {
             stopPolling();
             setGenerating(false);
+            if (elapsedTimerRef.current) {
+              clearInterval(elapsedTimerRef.current);
+              elapsedTimerRef.current = null;
+            }
             // ошибка возможна и при COMPLETED (воркер вернул error вместо картинки)
             if (data.error) {
               setError(data.error);
@@ -458,6 +468,13 @@ export default function Home() {
     setError(null);
     setJob(null);
     setGenerating(true);
+    // запускаем таймер прогресса
+    startedAtRef.current = Date.now();
+    setElapsed(0);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsed(Math.round((Date.now() - startedAtRef.current) / 1000));
+    }, 500);
     // прокрутим к блоку результата, чтобы он был сразу виден
     requestAnimationFrame(() =>
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -722,10 +739,10 @@ export default function Home() {
                   {job?.status && <span className="muted">· {job.status}</span>}
                 </div>
                 {generating && !job?.images && (
-                  <div className="row">
-                    <span className="spinner" /> ждём воркер… (первый раз
-                    дольше — качаются модели)
-                  </div>
+                  <ProgressIndicator
+                    status={job?.status}
+                    elapsed={elapsed}
+                  />
                 )}
                 {job?.images && (
                   <div className="result">
@@ -936,6 +953,49 @@ export default function Home() {
             )}
           </div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+// Индикатор прогресса без данных от воркера: оцениваем фазу по статусу и времени.
+// Стоковый worker-comfyui не стримит шаги, поэтому это оценка, а не точный %.
+function ProgressIndicator({
+  status,
+  elapsed,
+}: {
+  status?: JobStatus;
+  elapsed: number;
+}) {
+  let phase: string;
+  let pct: number;
+
+  if (status === "IN_QUEUE" || !status) {
+    phase = "В очереди — ждём свободный воркер…";
+    pct = 8;
+  } else if (elapsed < 25) {
+    // первые ~25с обычно уходят на холодный старт + скачивание модели
+    phase = "Подготовка воркера и загрузка модели…";
+    pct = 10 + Math.min(40, elapsed * 1.6);
+  } else {
+    phase = "Генерация изображения…";
+    // асимптотически приближаемся к 95%, не достигая 100 до завершения
+    pct = Math.min(95, 50 + (elapsed - 25) * 1.5);
+  }
+
+  return (
+    <div className="progress-box">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <span style={{ fontSize: 13 }}>{phase}</span>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {elapsed}s
+        </span>
+      </div>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+        Первая генерация на новой модели дольше — скачивается с Civitai.
       </div>
     </div>
   );
