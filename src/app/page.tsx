@@ -88,9 +88,14 @@ export default function Home() {
   const [checkpoint, setCheckpoint] = useState<PickedCheckpoint | null>(null);
   const [extras, setExtras] = useState<ExtraResource[]>([]);
 
+  const [loraPrompt, setLoraPrompt] = useState(""); // триггер-слова LoRA (авто)
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [ratio, setRatio] = useState<AspectRatio>("2:3");
+  const [steps, setSteps] = useState(28);
+  const [cfg, setCfg] = useState(6);
+  const [seed, setSeed] = useState(""); // пусто = случайный
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [job, setJob] = useState<JobResult | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -250,10 +255,10 @@ export default function Home() {
     if (removed?.trainedWords?.length) removeWordsFromPrompt(removed.trainedWords);
   }
 
-  // --- управление триггер-словами LoRA в промте ---
+  // --- управление триггер-словами LoRA в ОТДЕЛЬНОМ поле LoRA-промта ---
 
   function addWordsToPrompt(words: string[]) {
-    setPrompt((prev) => {
+    setLoraPrompt((prev) => {
       const existing = prev.trim();
       // не дублируем уже присутствующие слова
       const toAdd = words.filter(
@@ -266,7 +271,7 @@ export default function Home() {
   }
 
   function removeWordsFromPrompt(words: string[]) {
-    setPrompt((prev) => {
+    setLoraPrompt((prev) => {
       let text = prev;
       for (const w of words) {
         const word = w.trim();
@@ -339,7 +344,7 @@ export default function Home() {
       setError("Сначала выбери модель (checkpoint)");
       return;
     }
-    if (!prompt.trim()) {
+    if (!prompt.trim() && !loraPrompt.trim()) {
       setError("Введи промт");
       return;
     }
@@ -351,8 +356,13 @@ export default function Home() {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     );
 
+    // итоговый промт = триггер-слова LoRA + наш промт
+    const fullPrompt = [loraPrompt.trim(), prompt.trim()]
+      .filter(Boolean)
+      .join(", ");
+
     const body: GenerateRequest = {
-      prompt,
+      prompt: fullPrompt,
       negativePrompt: negative,
       aspectRatio: ratio,
       checkpoint: {
@@ -363,6 +373,9 @@ export default function Home() {
         downloadUrl: checkpoint.downloadUrl,
       },
       extras,
+      steps,
+      cfgScale: cfg,
+      seed: seed.trim() === "" ? undefined : Number(seed),
     };
 
     try {
@@ -457,6 +470,14 @@ export default function Home() {
               </div>
             ))}
 
+            <div className="label">Промт LoRA (триггер-слова, авто)</div>
+            <textarea
+              value={loraPrompt}
+              onChange={(e) => setLoraPrompt(e.target.value)}
+              placeholder="триггер-слова выбранных LoRA…"
+              style={{ minHeight: 52 }}
+            />
+
             <div className="label">Промт</div>
             <textarea
               value={prompt}
@@ -483,6 +504,63 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            <button
+              className="advanced-toggle"
+              onClick={() => setShowAdvanced((s) => !s)}
+              type="button"
+            >
+              {showAdvanced ? "▾" : "▸"} Параметры генерации
+            </button>
+            {showAdvanced && (
+              <div className="advanced">
+                <div className="adv-row">
+                  <label>
+                    Шаги (steps)
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={steps}
+                      onChange={(e) => setSteps(Number(e.target.value) || 1)}
+                    />
+                  </label>
+                  <label>
+                    CFG
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      step={0.5}
+                      value={cfg}
+                      onChange={(e) => setCfg(Number(e.target.value) || 1)}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Seed (пусто = случайный)
+                  <div className="row">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={seed}
+                      placeholder="случайный"
+                      onChange={(e) =>
+                        setSeed(e.target.value.replace(/[^0-9]/g, ""))
+                      }
+                    />
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={() => setSeed("")}
+                      title="случайный seed"
+                    >
+                      🎲
+                    </button>
+                  </div>
+                </label>
+              </div>
+            )}
 
             <div style={{ marginTop: 16 }}>
               <button
