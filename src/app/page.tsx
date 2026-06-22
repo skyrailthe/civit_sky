@@ -64,6 +64,7 @@ interface PickedCheckpoint {
   baseModel: string;
   downloadUrl: string;
   preview?: string;
+  versions: ModelVersion[]; // все версии модели — для выбора в выпадашке
 }
 
 export default function Home() {
@@ -71,7 +72,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CivitaiModel[]>([]);
   const [searching, setSearching] = useState(false);
-  const [page, setPage] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -89,10 +90,11 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  // pageToLoad=1 — новый поиск (заменяем); >1 — подгрузка (добавляем)
+  // nextCursor=null — новый поиск (заменяем); строка — подгрузка (добавляем).
+  // Civitai пагинирует курсором: page игнорируется, нужен metadata.nextCursor.
   const search = useCallback(
-    async (pageToLoad = 1) => {
-      if (pageToLoad === 1) setSearching(true);
+    async (nextCursor: string | null = null) => {
+      if (nextCursor === null) setSearching(true);
       else setLoadingMore(true);
       setError(null);
       try {
@@ -103,15 +105,20 @@ export default function Home() {
         if (query) sp.set("query", query);
         for (const t of types) sp.append("types", t);
         sp.set("limit", "24");
-        sp.set("page", String(pageToLoad));
+        if (nextCursor) sp.set("cursor", nextCursor);
         const res = await fetch(`/api/civitai/search?${sp.toString()}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Поиск не удался");
         const items: CivitaiModel[] = data.items ?? [];
-        setResults((prev) => (pageToLoad === 1 ? items : [...prev, ...items]));
-        setPage(pageToLoad);
-        // есть ли ещё страницы: по nextPage или по полному размеру страницы
-        setHasMore(Boolean(data.metadata?.nextPage) || items.length === 24);
+        setResults((prev) => {
+          if (nextCursor === null) return items;
+          // дедуп по id на случай пересечений между страницами
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...items.filter((m) => !seen.has(m.id))];
+        });
+        const nc: string | undefined = data.metadata?.nextCursor;
+        setCursor(nc ?? null);
+        setHasMore(Boolean(nc));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Ошибка поиска");
       } finally {
@@ -122,39 +129,76 @@ export default function Home() {
     [query, tab]
   );
 
-  // первичная загрузка / смена вкладки — всегда с первой страницы
+  // первичная загрузка / смена вкладки — всегда с начала
   useEffect(() => {
-    search(1);
+    search(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // применяет выбранную версию чекпойнта + чистит несовместимые доп. источники
+  function applyCheckpointVersion(
+    m: CivitaiModel,
+    v: ModelVersion,
+    allVersions: ModelVersion[]
+  ) {
+    const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
+    const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
+    setCheckpoint({
+      modelId: m.id,
+      modelVersionId: v.id,
+      name: m.name,
+      baseModel: v.baseModel,
+      downloadUrl,
+      preview: previewImage(v) ?? previewImage(allVersions[0]),
+      versions: allVersions,
+    });
+    // выкидываем доп. источники, которые стали несовместимы с новой базой
+    setExtras((prev) => {
+      const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
+      const dropped = prev.filter((e) => !isCompatible(v.baseModel, e.baseModel));
+      if (dropped.length > 0) {
+        setError("Несовместимые доп. источники убраны после смены версии");
+        for (const d of dropped) {
+          if (d.trainedWords?.length) removeWordsFromPrompt(d.trainedWords);
+        }
+      }
+      return kept;
+    });
+  }
+
+  // смена версии уже выбранного чекпойнта из выпадашки
+  function changeCheckpointVersion(versionId: number) {
+    if (!checkpoint) return;
+    const v = checkpoint.versions.find((x) => x.id === versionId);
+    if (!v) return;
+    const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
+    const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
+    setCheckpoint({
+      ...checkpoint,
+      modelVersionId: v.id,
+      baseModel: v.baseModel,
+      downloadUrl,
+      preview: previewImage(v) ?? checkpoint.preview,
+    });
+    setExtras((prev) => {
+      const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
+      const dropped = prev.filter((e) => !isCompatible(v.baseModel, e.baseModel));
+      if (dropped.length > 0) {
+        setError("Несовместимые доп. источники убраны после смены версии");
+        for (const d of dropped) {
+          if (d.trainedWords?.length) removeWordsFromPrompt(d.trainedWords);
+        }
+      }
+      return kept;
+    });
+  }
+
   function pickModel(m: CivitaiModel) {
     if (m.type === "Checkpoint") {
+      const versions = m.modelVersions ?? [];
       const v = freeCheckpointVersion(m);
       if (!v) return;
-      const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
-      const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
-      setCheckpoint({
-        modelId: m.id,
-        modelVersionId: v.id,
-        name: m.name,
-        baseModel: v.baseModel,
-        downloadUrl,
-        preview: previewImage(v),
-      });
-      // при смене модели выкидываем доп. источники, которые стали несовместимы
-      setExtras((prev) => {
-        const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
-        const dropped = prev.filter((e) => !isCompatible(v.baseModel, e.baseModel));
-        if (dropped.length > 0) {
-          setError("Несовместимые доп. источники убраны после смены модели");
-          // убираем их триггер-слова из промта
-          for (const d of dropped) {
-            if (d.trainedWords?.length) removeWordsFromPrompt(d.trainedWords);
-          }
-        }
-        return kept;
-      });
+      applyCheckpointVersion(m, v, versions);
     } else {
       // нельзя добавить доп. источник без выбранной модели
       if (!checkpoint) {
@@ -354,13 +398,35 @@ export default function Home() {
                     style={{ borderRadius: 6, objectFit: "cover" }}
                   />
                 )}
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14 }}>{checkpoint.name}</div>
                   <div className="card-meta">{checkpoint.baseModel}</div>
                 </div>
               </div>
             ) : (
               <div className="muted">не выбрана</div>
+            )}
+
+            {checkpoint && checkpoint.versions.length > 1 && (
+              <>
+                <div className="label">Версия модели</div>
+                <select
+                  value={checkpoint.modelVersionId}
+                  onChange={(e) =>
+                    changeCheckpointVersion(Number(e.target.value))
+                  }
+                >
+                  {checkpoint.versions.map((ver) => {
+                    const free = isFreeVersion(ver);
+                    return (
+                      <option key={ver.id} value={ver.id}>
+                        {ver.name} · {ver.baseModel}
+                        {free ? "" : " (платно/ранний доступ)"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </>
             )}
 
             <div className="label">Доп. источники (LoRA / embeddings)</div>
@@ -503,7 +569,7 @@ export default function Home() {
               className="row"
               onSubmit={(e) => {
                 e.preventDefault();
-                search(1);
+                search(null);
               }}
             >
               <input
@@ -565,8 +631,8 @@ export default function Home() {
               <div style={{ marginTop: 16, textAlign: "center" }}>
                 <button
                   className="btn btn-ghost btn-sm"
-                  onClick={() => search(page + 1)}
-                  disabled={loadingMore}
+                  onClick={() => cursor && search(cursor)}
+                  disabled={loadingMore || !cursor}
                 >
                   {loadingMore ? <span className="spinner" /> : "Загрузить ещё"}
                 </button>

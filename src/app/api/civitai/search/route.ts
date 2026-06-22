@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       types: types.length ? types : undefined,
       baseModels: sp.getAll("baseModels"),
       limit: sp.get("limit") ? Number(sp.get("limit")) : 24,
-      page: sp.get("page") ? Number(sp.get("page")) : 1,
+      cursor: sp.get("cursor") ?? undefined,
       sort:
         (sp.get("sort") as
           | "Highest Rated"

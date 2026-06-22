@@ -12,7 +12,7 @@ export interface SearchParams {
   types?: CivitaiModelType[];
   baseModels?: string[];
   limit?: number;
-  page?: number;
+  cursor?: string; // Civitai пагинирует курсором, а не page (page игнорируется)
   nsfw?: boolean;
   sort?: "Highest Rated" | "Most Downloaded" | "Newest";
 }
@@ -20,6 +20,7 @@ export interface SearchParams {
 export interface SearchResult {
   items: CivitaiModel[];
   metadata: {
+    nextCursor?: string;
     nextPage?: string;
     totalItems?: number;
     currentPage?: number;
@@ -31,7 +32,7 @@ export async function searchModels(params: SearchParams): Promise<SearchResult> 
   const sp = new URLSearchParams();
   if (params.query) sp.set("query", params.query);
   if (params.limit) sp.set("limit", String(params.limit));
-  if (params.page) sp.set("page", String(params.page));
+  if (params.cursor) sp.set("cursor", params.cursor);
   if (params.sort) sp.set("sort", params.sort);
   if (typeof params.nsfw === "boolean") sp.set("nsfw", String(params.nsfw));
   for (const t of params.types ?? []) sp.append("types", t);
