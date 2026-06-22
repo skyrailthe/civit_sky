@@ -358,6 +358,27 @@ textarea {
   background: #000;
 }
 
+.history {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.history img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: #000;
+}
+
+.history img:hover {
+  border-color: var(--accent);
+}
+
 .row {
   display: flex;
   gap: 8px;

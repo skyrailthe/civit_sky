@@ -118,6 +118,11 @@ export default function Home() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // история генераций (картинка + промт), хранится в localStorage
+  const [history, setHistory] = useState<
+    { id: string; src: string; prompt: string; at: number }[]
+  >([]);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
@@ -165,6 +170,41 @@ export default function Home() {
     if (tab !== "gallery") search(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // история: загрузка из localStorage при старте
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("civitsky_history");
+      if (raw) setHistory(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // добавить результат в историю (храним последние 12, base64 тяжёлый)
+  const HISTORY_LIMIT = 12;
+  function pushHistory(src: string, promptText: string) {
+    setHistory((prev) => {
+      const next = [
+        { id: `${Date.now()}-${Math.random()}`, src, prompt: promptText, at: Date.now() },
+        ...prev,
+      ].slice(0, HISTORY_LIMIT);
+      try {
+        localStorage.setItem("civitsky_history", JSON.stringify(next));
+      } catch {
+        // переполнение квоты — обрежем ещё сильнее
+        try {
+          localStorage.setItem(
+            "civitsky_history",
+            JSON.stringify(next.slice(0, 6))
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+      return next;
+    });
+  }
 
   // загрузка картинок галереи выбранной LoRA
   useEffect(() => {
@@ -369,7 +409,7 @@ export default function Home() {
   }, []);
 
   const poll = useCallback(
-    (id: string) => {
+    (id: string, promptText: string) => {
       stopPolling();
       pollRef.current = setInterval(async () => {
         try {
@@ -388,6 +428,9 @@ export default function Home() {
               setError(data.error);
             } else if (data.status !== "COMPLETED") {
               setError(`Задача завершилась: ${data.status}`);
+            } else if (data.images?.length) {
+              // сохраняем картинки в историю
+              for (const src of data.images) pushHistory(src, promptText);
             }
           }
         } catch {
@@ -397,6 +440,7 @@ export default function Home() {
         }
       }, 2500);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopPolling]
   );
 
@@ -450,7 +494,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Не удалось запустить");
       setJob({ id: data.id, status: "IN_QUEUE" });
-      poll(data.id);
+      poll(data.id, fullPrompt);
     } catch (e) {
       setGenerating(false);
       setError(e instanceof Error ? e.message : "Ошибка генерации");
@@ -692,6 +736,44 @@ export default function Home() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {history.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div className="label">
+                  История{" "}
+                  <button
+                    className="advanced-toggle"
+                    style={{ padding: 0, fontSize: 11 }}
+                    onClick={() => {
+                      setHistory([]);
+                      try {
+                        localStorage.removeItem("civitsky_history");
+                      } catch {}
+                    }}
+                  >
+                    очистить
+                  </button>
+                </div>
+                <div className="history">
+                  {history.map((h) => (
+                    <img
+                      key={h.id}
+                      src={h.src}
+                      alt=""
+                      title={h.prompt}
+                      onClick={() => {
+                        setJob({
+                          id: h.id,
+                          status: "COMPLETED",
+                          images: [h.src],
+                        });
+                        if (h.prompt) setPrompt(h.prompt);
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
