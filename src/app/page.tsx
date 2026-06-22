@@ -13,6 +13,15 @@ import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
 
 const RATIOS: AspectRatio[] = ["2:3", "1:1", "3:2"];
 
+// Первое превью-ИЗОБРАЖЕНИЕ версии (пропускаем video/.mp4, которые <img> не рисует).
+function previewImage(v?: CivitaiModel["modelVersions"][number]): string | undefined {
+  const imgs = v?.images ?? [];
+  const pic = imgs.find(
+    (i) => i.type !== "video" && !/\.(mp4|webm)(\?|$)/i.test(i.url)
+  );
+  return pic?.url;
+}
+
 interface PickedCheckpoint {
   modelId: number;
   modelVersionId: number;
@@ -75,7 +84,7 @@ export default function Home() {
     if (!v) return;
     const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
     const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
-    const preview = v.images?.[0]?.url;
+    const preview = previewImage(v);
 
     if (m.type === "Checkpoint") {
       setCheckpoint({
@@ -89,10 +98,13 @@ export default function Home() {
       // при смене модели выкидываем доп. источники, которые стали несовместимы
       setExtras((prev) => {
         const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
-        if (kept.length !== prev.length) {
-          setError(
-            "Несовместимые доп. источники убраны после смены модели"
-          );
+        const dropped = prev.filter((e) => !isCompatible(v.baseModel, e.baseModel));
+        if (dropped.length > 0) {
+          setError("Несовместимые доп. источники убраны после смены модели");
+          // убираем их триггер-слова из промта
+          for (const d of dropped) {
+            if (d.trainedWords?.length) removeWordsFromPrompt(d.trainedWords);
+          }
         }
         return kept;
       });
@@ -111,6 +123,7 @@ export default function Home() {
       // не добавляем дубликаты
       if (extras.some((e) => e.modelVersionId === v.id)) return;
       setError(null);
+      const words = v.trainedWords ?? [];
       setExtras((prev) => [
         ...prev,
         {
@@ -121,14 +134,55 @@ export default function Home() {
           baseModel: v.baseModel,
           downloadUrl,
           strength: 1.0,
-          trainedWords: v.trainedWords,
+          trainedWords: words,
         },
       ]);
+      // авто-вставляем триггер-слова LoRA в промт (юзер может поправить)
+      if (words.length > 0) addWordsToPrompt(words);
     }
   }
 
   function removeExtra(id: number) {
+    const removed = extras.find((e) => e.modelVersionId === id);
     setExtras((prev) => prev.filter((e) => e.modelVersionId !== id));
+    if (removed?.trainedWords?.length) removeWordsFromPrompt(removed.trainedWords);
+  }
+
+  // --- управление триггер-словами LoRA в промте ---
+
+  function addWordsToPrompt(words: string[]) {
+    setPrompt((prev) => {
+      const existing = prev.trim();
+      // не дублируем уже присутствующие слова
+      const toAdd = words.filter(
+        (w) => w.trim() && !existing.toLowerCase().includes(w.trim().toLowerCase())
+      );
+      if (toAdd.length === 0) return prev;
+      const joined = toAdd.join(", ");
+      return existing ? `${existing}, ${joined}` : joined;
+    });
+  }
+
+  function removeWordsFromPrompt(words: string[]) {
+    setPrompt((prev) => {
+      let text = prev;
+      for (const w of words) {
+        const word = w.trim();
+        if (!word) continue;
+        // убираем слово вместе с окружающими запятыми/пробелами
+        const re = new RegExp(
+          `\\s*,?\\s*${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*,?`,
+          "gi"
+        );
+        text = text.replace(re, ", ");
+      }
+      // чистим лишние запятые/пробелы
+      return text
+        .replace(/\s*,\s*,+/g, ", ")
+        .replace(/^\s*,\s*/, "")
+        .replace(/\s*,\s*$/, "")
+        .trim();
+    });
   }
 
   function setStrength(id: number, strength: number) {
@@ -419,7 +473,7 @@ export default function Home() {
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
                 const v = m.modelVersions?.[0];
-                const img = v?.images?.[0]?.url;
+                const img = previewImage(v);
                 const selected =
                   m.type === "Checkpoint"
                     ? checkpoint?.modelVersionId === v?.id
