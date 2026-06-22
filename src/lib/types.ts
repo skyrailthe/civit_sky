@@ -29,6 +29,9 @@ export interface CivitaiModelVersion {
   id: number;
   name: string;
   baseModel: string; // "SDXL 1.0", "Pony", "Illustrious", "SD 1.5", "Flux.1 D"...
+  availability?: string; // "Public" = бесплатно; "EarlyAccess"/иное — может быть платно
+  earlyAccessEndsAt?: string; // если задано и в будущем — версия в платном раннем доступе
+  status?: string; // "Published" — опубликована
   downloadUrl?: string;
   files: CivitaiFile[];
   images: {

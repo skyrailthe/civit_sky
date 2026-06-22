@@ -22,6 +22,41 @@ function previewImage(v?: CivitaiModel["modelVersions"][number]): string | undef
   return pic?.url;
 }
 
+type ModelVersion = CivitaiModel["modelVersions"][number];
+
+// Бесплатная и доступная версия: опубликована, Public, не в платном раннем доступе.
+function isFreeVersion(ver: ModelVersion): boolean {
+  if (ver.status && ver.status !== "Published") return false;
+  if (ver.availability && ver.availability !== "Public") return false;
+  // платный ранний доступ: дата окончания в будущем
+  if (ver.earlyAccessEndsAt) {
+    const ends = new Date(ver.earlyAccessEndsAt).getTime();
+    if (!Number.isNaN(ends) && ends > Date.now()) return false;
+  }
+  return true;
+}
+
+// Последняя бесплатная версия чекпойнта (версии приходят новейшими первыми).
+// Если все платные — берём первую как фолбэк.
+function freeCheckpointVersion(m: CivitaiModel): ModelVersion | undefined {
+  const versions = m.modelVersions ?? [];
+  return versions.find(isFreeVersion) ?? versions[0];
+}
+
+// Версия LoRA, совместимая с baseModel чекпойнта И бесплатная.
+// У одной LoRA бывает много версий под разные базы (SD1.5/Pony/SDXL/...).
+function compatibleVersion(
+  m: CivitaiModel,
+  ckptBase?: string
+): ModelVersion | undefined {
+  const versions = m.modelVersions ?? [];
+  const compatible = ckptBase
+    ? versions.filter((ver) => isCompatible(ckptBase, ver.baseModel))
+    : versions;
+  // среди совместимых предпочитаем бесплатную; иначе любую совместимую
+  return compatible.find(isFreeVersion) ?? compatible[0];
+}
+
 interface PickedCheckpoint {
   modelId: number;
   modelVersionId: number;
@@ -36,6 +71,9 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CivitaiModel[]>([]);
   const [searching, setSearching] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [checkpoint, setCheckpoint] = useState<PickedCheckpoint | null>(null);
   const [extras, setExtras] = useState<ExtraResource[]>([]);
@@ -51,49 +89,58 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  const search = useCallback(async () => {
-    setSearching(true);
-    setError(null);
-    try {
-      // доп. источники: пока только LoRA (embeddings/TextualInversion не поддержаны)
-      const types: CivitaiModelType[] =
-        tab === "checkpoint" ? ["Checkpoint"] : ["LORA", "LoCon"];
-      const sp = new URLSearchParams();
-      if (query) sp.set("query", query);
-      for (const t of types) sp.append("types", t);
-      sp.set("limit", "24");
-      const res = await fetch(`/api/civitai/search?${sp.toString()}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Поиск не удался");
-      setResults(data.items ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка поиска");
-    } finally {
-      setSearching(false);
-    }
-  }, [query, tab]);
+  // pageToLoad=1 — новый поиск (заменяем); >1 — подгрузка (добавляем)
+  const search = useCallback(
+    async (pageToLoad = 1) => {
+      if (pageToLoad === 1) setSearching(true);
+      else setLoadingMore(true);
+      setError(null);
+      try {
+        // доп. источники: пока только LoRA (embeddings/TextualInversion не поддержаны)
+        const types: CivitaiModelType[] =
+          tab === "checkpoint" ? ["Checkpoint"] : ["LORA", "LoCon"];
+        const sp = new URLSearchParams();
+        if (query) sp.set("query", query);
+        for (const t of types) sp.append("types", t);
+        sp.set("limit", "24");
+        sp.set("page", String(pageToLoad));
+        const res = await fetch(`/api/civitai/search?${sp.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Поиск не удался");
+        const items: CivitaiModel[] = data.items ?? [];
+        setResults((prev) => (pageToLoad === 1 ? items : [...prev, ...items]));
+        setPage(pageToLoad);
+        // есть ли ещё страницы: по nextPage или по полному размеру страницы
+        setHasMore(Boolean(data.metadata?.nextPage) || items.length === 24);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Ошибка поиска");
+      } finally {
+        setSearching(false);
+        setLoadingMore(false);
+      }
+    },
+    [query, tab]
+  );
 
-  // первичная загрузка популярных моделей
+  // первичная загрузка / смена вкладки — всегда с первой страницы
   useEffect(() => {
-    search();
+    search(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   function pickModel(m: CivitaiModel) {
-    const v = m.modelVersions?.[0];
-    if (!v) return;
-    const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
-    const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
-    const preview = previewImage(v);
-
     if (m.type === "Checkpoint") {
+      const v = freeCheckpointVersion(m);
+      if (!v) return;
+      const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
+      const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
       setCheckpoint({
         modelId: m.id,
         modelVersionId: v.id,
         name: m.name,
         baseModel: v.baseModel,
         downloadUrl,
-        preview,
+        preview: previewImage(v),
       });
       // при смене модели выкидываем доп. источники, которые стали несовместимы
       setExtras((prev) => {
@@ -114,12 +161,14 @@ export default function Home() {
         setError("Сначала выбери модель (checkpoint)");
         return;
       }
-      // блокируем несовместимое с текущим чекпойнтом
-      const reason = incompatibilityReason(checkpoint.baseModel, v.baseModel);
-      if (reason) {
-        setError(reason);
+      // подбираем версию LoRA, совместимую с чекпойнтом (а не modelVersions[0])
+      const v = compatibleVersion(m, checkpoint.baseModel);
+      if (!v) {
+        setError("У этой LoRA нет версии под выбранную модель");
         return;
       }
+      const file = v.files?.find((f) => f.primary) ?? v.files?.[0];
+      const downloadUrl = file?.downloadUrl ?? v.downloadUrl ?? "";
       // не добавляем дубликаты
       if (extras.some((e) => e.modelVersionId === v.id)) return;
       setError(null);
@@ -454,7 +503,7 @@ export default function Home() {
               className="row"
               onSubmit={(e) => {
                 e.preventDefault();
-                search();
+                search(1);
               }}
             >
               <input
@@ -472,43 +521,35 @@ export default function Home() {
 
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
-                const v = m.modelVersions?.[0];
-                const img = previewImage(v);
+                // для LoRA — совместимую версию; для чекпойнта — последнюю бесплатную
+                const v =
+                  m.type === "Checkpoint"
+                    ? freeCheckpointVersion(m)
+                    : compatibleVersion(m, checkpoint?.baseModel);
+                // LoRA без совместимой версии не показываем вовсе
+                if (m.type !== "Checkpoint" && checkpoint && !v) return null;
+                // превью берём из совместимой версии, с фолбэком на первую
+                const img = previewImage(v) ?? previewImage(m.modelVersions?.[0]);
                 const selected =
                   m.type === "Checkpoint"
                     ? checkpoint?.modelVersionId === v?.id
                     : extras.some((e) => e.modelVersionId === v?.id);
-                // несовместимость считаем только для доп. источников при выбранной модели
-                const incompatible =
-                  m.type !== "Checkpoint" &&
-                  !!checkpoint &&
-                  !isCompatible(checkpoint.baseModel, v?.baseModel);
                 return (
                   <div
                     key={m.id}
-                    className={`card ${selected ? "selected" : ""} ${
-                      incompatible ? "incompatible" : ""
-                    }`}
-                    onClick={() => !incompatible && pickModel(m)}
-                    title={
-                      incompatible
-                        ? `Несовместимо с ${checkpoint?.baseModel}`
-                        : undefined
-                    }
+                    className={`card ${selected ? "selected" : ""}`}
+                    onClick={() => pickModel(m)}
                   >
                     {img ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={img} alt={m.name} />
                     ) : (
-                      <div style={{ aspectRatio: "3/4", background: "#000" }} />
+                      <div className="no-preview">нет превью</div>
                     )}
                     <div className="card-body">
                       <div className="card-title">{m.name}</div>
                       <div className="card-meta">
                         {m.type} · {v?.baseModel}
-                        {incompatible && (
-                          <span className="badge-incompat">несовместимо</span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -518,6 +559,17 @@ export default function Home() {
             {results.length === 0 && !searching && (
               <div className="muted" style={{ marginTop: 12 }}>
                 Ничего не найдено
+              </div>
+            )}
+            {hasMore && results.length > 0 && (
+              <div style={{ marginTop: 16, textAlign: "center" }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => search(page + 1)}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? <span className="spinner" /> : "Загрузить ещё"}
+                </button>
               </div>
             )}
           </div>

@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
           | "Most Downloaded"
           | "Newest"
           | null) ?? "Most Downloaded",
-      nsfw: sp.get("nsfw") === "true" ? true : false,
+      // по умолчанию включаем NSFW — иначе Civitai не отдаёт превью таких моделей
+      nsfw: sp.get("nsfw") === "false" ? false : true,
     });
     return NextResponse.json(result);
   } catch (err) {
