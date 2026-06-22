@@ -77,8 +77,25 @@ interface PickedCheckpoint {
 }
 
 export default function Home() {
-  const [tab, setTab] = useState<"checkpoint" | "extra">("checkpoint");
-  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"checkpoint" | "extra" | "gallery">(
+    "checkpoint"
+  );
+  // отдельная строка поиска для вкладок поиска (у галереи своего поиска нет)
+  const [queries, setQueries] = useState<{ checkpoint: string; extra: string }>(
+    { checkpoint: "", extra: "" }
+  );
+  const query = tab === "gallery" ? "" : queries[tab];
+  const setQuery = (val: string) =>
+    tab !== "gallery" &&
+    setQueries((prev) => ({ ...prev, [tab]: val }));
+
+  // галерея картинок последней выбранной LoRA
+  const [galleryFor, setGalleryFor] = useState<ExtraResource | null>(null);
+  const [galleryImages, setGalleryImages] = useState<
+    { id: number; url: string; prompt?: string }[]
+  >([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [results, setResults] = useState<CivitaiModel[]>([]);
   const [searching, setSearching] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -143,11 +160,57 @@ export default function Home() {
     [query, tab]
   );
 
-  // первичная загрузка / смена вкладки — всегда с начала
+  // первичная загрузка / смена вкладки поиска — всегда с начала
   useEffect(() => {
-    search(null);
+    if (tab !== "gallery") search(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // загрузка картинок галереи выбранной LoRA
+  useEffect(() => {
+    if (!galleryFor) {
+      setGalleryImages([]);
+      return;
+    }
+    let cancelled = false;
+    setGalleryLoading(true);
+    fetch(`/api/civitai/images?modelVersionId=${galleryFor.modelVersionId}&limit=30`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const imgs = (data.items ?? [])
+          .filter(
+            (i: { type?: string; url: string }) =>
+              i.type !== "video" && !/\.(mp4|webm)(\?|$)/i.test(i.url)
+          )
+          .map((i: { id: number; url: string; meta?: { prompt?: string } }) => ({
+            id: i.id,
+            url: i.url,
+            prompt: i.meta?.prompt,
+          }));
+        setGalleryImages(imgs);
+      })
+      .catch(() => !cancelled && setGalleryImages([]))
+      .finally(() => !cancelled && setGalleryLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryFor]);
+
+  async function copyPromptFromImage(p?: string) {
+    if (!p) {
+      setError("У этой картинки промт скрыт автором");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(p);
+      setCopied(true);
+      setPrompt(p);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setPrompt(p); // хотя бы вставим в поле промта
+    }
+  }
 
   // применяет выбранную версию чекпойнта + чистит несовместимые доп. источники
   function applyCheckpointVersion(
@@ -231,21 +294,21 @@ export default function Home() {
       if (extras.some((e) => e.modelVersionId === v.id)) return;
       setError(null);
       const words = v.trainedWords ?? [];
-      setExtras((prev) => [
-        ...prev,
-        {
-          modelId: m.id,
-          modelVersionId: v.id,
-          name: m.name,
-          type: m.type,
-          baseModel: v.baseModel,
-          downloadUrl,
-          strength: 1.0,
-          trainedWords: words,
-        },
-      ]);
+      const added: ExtraResource = {
+        modelId: m.id,
+        modelVersionId: v.id,
+        name: m.name,
+        type: m.type,
+        baseModel: v.baseModel,
+        downloadUrl,
+        strength: 1.0,
+        trainedWords: words,
+      };
+      setExtras((prev) => [...prev, added]);
       // авто-вставляем триггер-слова LoRA в промт (юзер может поправить)
       if (words.length > 0) addWordsToPrompt(words);
+      // галерея картинок этой LoRA
+      setGalleryFor(added);
     }
   }
 
@@ -650,28 +713,89 @@ export default function Home() {
               >
                 Доп. источники
               </div>
+              {galleryFor && (
+                <div
+                  className={`tab ${tab === "gallery" ? "active" : ""}`}
+                  onClick={() => setTab("gallery")}
+                  title={`Картинки LoRA: ${galleryFor.name}`}
+                >
+                  🖼 {galleryFor.name.slice(0, 14)}
+                  {galleryFor.name.length > 14 ? "…" : ""}
+                </div>
+              )}
             </div>
 
-            <form
-              className="row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                search(null);
-              }}
-            >
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  tab === "checkpoint" ? "поиск модели…" : "поиск LoRA…"
-                }
-              />
-              <button className="btn btn-sm" type="submit" disabled={searching}>
-                {searching ? <span className="spinner" /> : "Найти"}
-              </button>
-            </form>
+            {tab !== "gallery" && (
+              <form
+                className="row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  search(null);
+                }}
+              >
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    tab === "checkpoint" ? "поиск модели…" : "поиск LoRA…"
+                  }
+                />
+                <button
+                  className="btn btn-sm"
+                  type="submit"
+                  disabled={searching}
+                >
+                  {searching ? <span className="spinner" /> : "Найти"}
+                </button>
+              </form>
+            )}
 
+            {tab === "gallery" && (
+              <div>
+                <div className="muted" style={{ margin: "8px 0" }}>
+                  Картинки пользователей · {galleryFor?.name}
+                  {copied && (
+                    <span style={{ color: "var(--accent)" }}>
+                      {" "}
+                      · промт скопирован ✓
+                    </span>
+                  )}
+                </div>
+                {galleryLoading && (
+                  <div className="row">
+                    <span className="spinner" /> загрузка…
+                  </div>
+                )}
+                <div className="grid">
+                  {galleryImages.map((g) => (
+                    <div
+                      key={g.id}
+                      className="card"
+                      onClick={() => copyPromptFromImage(g.prompt)}
+                      title={
+                        g.prompt
+                          ? "Клик — скопировать промт"
+                          : "Промт скрыт автором"
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={g.url} alt="" />
+                      <div className="card-body">
+                        <div className="card-meta">
+                          {g.prompt ? "промт доступен" : "промт скрыт"}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {!galleryLoading && galleryImages.length === 0 && (
+                  <div className="muted">Нет картинок</div>
+                )}
+              </div>
+            )}
+
+            {tab !== "gallery" && (
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
                 // видео-модели наш пайплайн не поддерживает — скрываем
@@ -711,12 +835,13 @@ export default function Home() {
                 );
               })}
             </div>
-            {results.length === 0 && !searching && (
+            )}
+            {tab !== "gallery" && results.length === 0 && !searching && (
               <div className="muted" style={{ marginTop: 12 }}>
                 Ничего не найдено
               </div>
             )}
-            {hasMore && results.length > 0 && (
+            {tab !== "gallery" && hasMore && results.length > 0 && (
               <div style={{ marginTop: 16, textAlign: "center" }}>
                 <button
                   className="btn btn-ghost btn-sm"
