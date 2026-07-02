@@ -17,6 +17,25 @@ RUN cd /comfyui/custom_nodes \
          pip install --no-cache-dir -r ComfyUI-EasyCivitai-XTNodes/requirements.txt; \
        fi
 
+# Нода AssetDownloader — качает произвольный URL в нужную папку models (для Flux
+# UNET, который надо положить в diffusion_models и загрузить через UNETLoader;
+# XTNodes так не умеет). OUTPUT_NODE → выполняется всегда до генерации.
+RUN cd /comfyui/custom_nodes \
+    && git clone https://github.com/ServiceStack/comfy-asset-downloader.git \
+    && if [ -f comfy-asset-downloader/requirements.txt ]; then \
+         pip install --no-cache-dir -r comfy-asset-downloader/requirements.txt; \
+       fi
+
+# Запекаем текст-энкодеры и VAE для Flux (их нельзя получить из fp8-UNET).
+# t5xxl_fp8 (~5ГБ) + clip_l + Flux ae.vae — грузятся один раз при сборке.
+RUN mkdir -p /comfyui/models/text_encoders /comfyui/models/vae \
+    && aria2c -x8 -s8 -o /comfyui/models/text_encoders/t5xxl_fp8_e4m3fn.safetensors \
+       "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors" \
+    && aria2c -x8 -s8 -o /comfyui/models/text_encoders/clip_l.safetensors \
+       "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" \
+    && aria2c -x8 -s8 -o /comfyui/models/vae/flux_ae.safetensors \
+       "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors"
+
 # Нода читает токен Civitai из .secrets.toml ([civitai] token=...), а не из env.
 # Чтобы не запекать токен в образ, генерируем этот файл при старте контейнера
 # из переменной окружения CIVITAI_TOKEN (задаётся в Environment Variables эндпоинта).
