@@ -26,12 +26,14 @@ def _download(url: str, dest: str, token: str) -> None:
         return  # уже скачан (кеш воркера)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tok = _resolve_token(token)
-    # Civitai принимает токен и в query (?token=), и в заголовке — даём оба.
+    # Civitai авторизует download через query-параметр ?token=, а затем
+    # редиректит на CDN (b2.civitai.com) со СВОИМ Authorization в URL.
+    # НЕЛЬЗЯ слать свой заголовок Authorization — aria2 протащит его на CDN,
+    # и тот вернёт 403. Поэтому только ?token=, без header.
     dl_url = url
     if tok and "token=" not in url:
         sep = "&" if "?" in url else "?"
         dl_url = f"{url}{sep}token={tok}"
-    headers = ["--header", f"Authorization: Bearer {tok}"] if tok else []
     cmd = [
         "aria2c",
         "-x", "8", "-s", "8",
@@ -43,7 +45,6 @@ def _download(url: str, dest: str, token: str) -> None:
         "--check-certificate=false",
         "-o", os.path.basename(dest),
         "-d", os.path.dirname(dest),
-        *headers,
         dl_url,
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
