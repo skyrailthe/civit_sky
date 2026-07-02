@@ -180,25 +180,19 @@ function buildFluxWorkflow(req: GenerateRequest): Workflow {
 
   const unetFile = `civitsky_flux_${req.checkpoint.modelVersionId}.safetensors`;
 
-  // 1. Скачиваем UNET в diffusion_models (OUTPUT_NODE, выполнится до генерации)
-  const dlId = nextId();
-  wf[dlId] = {
-    class_type: "AssetDownloader",
+  // 1. UNET: наша нода качает по URL И грузит как MODEL атомарно (нет race).
+  const unetId = nextId();
+  wf[unetId] = {
+    class_type: "CivitskyFluxUNETLoader",
     inputs: {
       url: civitaiDownloadUrl(req.checkpoint.modelVersionId),
-      save_to: "diffusion_models",
       filename: unetFile,
+      weight_dtype: "fp8_e4m3fn",
       token: "$CIVITAI_TOKEN",
     },
   };
 
-  // 2. Загрузчики
-  const unetId = nextId();
-  wf[unetId] = {
-    class_type: "UNETLoader",
-    inputs: { unet_name: unetFile, weight_dtype: "fp8_e4m3fn" },
-  };
-
+  // 2. Текст-энкодеры и VAE (запечены в образ)
   const clipId = nextId();
   wf[clipId] = {
     class_type: "DualCLIPLoader",

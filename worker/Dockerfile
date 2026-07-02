@@ -17,14 +17,10 @@ RUN cd /comfyui/custom_nodes \
          pip install --no-cache-dir -r ComfyUI-EasyCivitai-XTNodes/requirements.txt; \
        fi
 
-# Нода AssetDownloader — качает произвольный URL в нужную папку models (для Flux
-# UNET, который надо положить в diffusion_models и загрузить через UNETLoader;
-# XTNodes так не умеет). OUTPUT_NODE → выполняется всегда до генерации.
-RUN cd /comfyui/custom_nodes \
-    && git clone https://github.com/ServiceStack/comfy-asset-downloader.git \
-    && if [ -f comfy-asset-downloader/requirements.txt ]; then \
-         pip install --no-cache-dir -r comfy-asset-downloader/requirements.txt; \
-       fi
+# Наша нода CivitskyFluxUNETLoader: качает Flux UNET по URL И сразу грузит как
+# MODEL (атомарно). Явная зависимость в графе → нет race (был у раздельного
+# AssetDownloader + UNETLoader: "No outputs" при первом скачивании).
+COPY worker/civitsky_nodes /comfyui/custom_nodes/civitsky_nodes
 
 # Запекаем текст-энкодеры и VAE для Flux (их нельзя получить из fp8-UNET).
 # t5xxl_fp8 (~5ГБ) + clip_l + Flux ae.vae — грузятся один раз при сборке.
