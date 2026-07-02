@@ -10,10 +10,27 @@ import type {
   JobResult,
   JobStatus,
 } from "@/lib/types";
-import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
+import {
+  isCompatible,
+  incompatibilityReason,
+  isSupportedFamily,
+} from "@/lib/compatibility";
 import { presetFor } from "@/lib/presets";
 
 const RATIOS: AspectRatio[] = ["2:3", "1:1", "3:2"];
+
+// Фильтр поиска по семейству → конкретные baseModels Civitai (для параметра API).
+const FAMILY_FILTERS: { label: string; baseModels: string[] }[] = [
+  { label: "Все", baseModels: [] },
+  { label: "SD 1.5", baseModels: ["SD 1.5", "SD 1.4"] },
+  {
+    label: "SDXL",
+    baseModels: ["SDXL 1.0", "SDXL 0.9", "SDXL Lightning", "SDXL Hyper"],
+  },
+  { label: "Pony", baseModels: ["Pony"] },
+  { label: "Illustrious", baseModels: ["Illustrious", "NoobAI"] },
+  { label: "Flux", baseModels: ["Flux.1 D", "Flux.1 S"] },
+];
 
 // Первое превью-ИЗОБРАЖЕНИЕ версии (пропускаем video/.mp4, которые <img> не рисует).
 function previewImage(v?: CivitaiModel["modelVersions"][number]): string | undefined {
@@ -26,13 +43,10 @@ function previewImage(v?: CivitaiModel["modelVersions"][number]): string | undef
 
 type ModelVersion = CivitaiModel["modelVersions"][number];
 
-// Видео-модели (Wan, SVD, AnimateDiff и т.п.) наш txt2img-пайплайн не поддерживает.
-function isVideoModel(m: CivitaiModel): boolean {
-  return (m.modelVersions ?? []).some((v) =>
-    /\b(wan|video|svd|animatediff|cogvideo|ltx|hunyuan video|mochi)\b/i.test(
-      v.baseModel ?? ""
-    )
-  );
+// Чекпойнт поддержан, если ХОТЯ БЫ одна версия — известной поддержанной
+// архитектуры (SD1.5/SDXL/Pony/Illustrious/Flux.1). Видео и экзотику скрываем.
+function isSupportedCheckpoint(m: CivitaiModel): boolean {
+  return (m.modelVersions ?? []).some((v) => isSupportedFamily(v.baseModel));
 }
 
 // Бесплатная и доступная версия: опубликована, Public, не в платном раннем доступе.
@@ -90,6 +104,7 @@ export default function Home() {
   const setQuery = (val: string) =>
     tab !== "gallery" &&
     setQueries((prev) => ({ ...prev, [tab]: val }));
+  const [familyFilter, setFamilyFilter] = useState(0); // индекс в FAMILY_FILTERS
 
   // галерея картинок последней выбранной LoRA
   const [galleryFor, setGalleryFor] = useState<ExtraResource | null>(null);
@@ -147,6 +162,9 @@ export default function Home() {
         const sp = new URLSearchParams();
         if (query) sp.set("query", query);
         for (const t of types) sp.append("types", t);
+        // фильтр по семейству (для обеих вкладок поиска)
+        for (const bm of FAMILY_FILTERS[familyFilter].baseModels)
+          sp.append("baseModels", bm);
         sp.set("limit", "24");
         if (nextCursor) sp.set("cursor", nextCursor);
         const res = await fetch(`/api/civitai/search?${sp.toString()}`);
@@ -169,14 +187,14 @@ export default function Home() {
         setLoadingMore(false);
       }
     },
-    [query, tab]
+    [query, tab, familyFilter]
   );
 
-  // первичная загрузка / смена вкладки поиска — всегда с начала
+  // первичная загрузка / смена вкладки или фильтра — всегда с начала
   useEffect(() => {
     if (tab !== "gallery") search(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, familyFilter]);
 
   // история: загрузка из localStorage при старте
   useEffect(() => {
@@ -867,6 +885,18 @@ export default function Home() {
                     tab === "checkpoint" ? "поиск модели…" : "поиск LoRA…"
                   }
                 />
+                <select
+                  value={familyFilter}
+                  onChange={(e) => setFamilyFilter(Number(e.target.value))}
+                  style={{ width: "auto" }}
+                  title="Фильтр по семейству"
+                >
+                  {FAMILY_FILTERS.map((f, i) => (
+                    <option key={f.label} value={i}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   className="btn btn-sm"
                   type="submit"
@@ -925,7 +955,9 @@ export default function Home() {
             <div className="grid" style={{ marginTop: 12 }}>
               {results.map((m) => {
                 // видео-модели наш пайплайн не поддерживает — скрываем
-                if (isVideoModel(m)) return null;
+                // скрываем неподдерживаемые архитектуры (видео/Qwen/Chroma/Flux.2/...)
+                if (m.type === "Checkpoint" && !isSupportedCheckpoint(m))
+                  return null;
                 // для LoRA — совместимую версию; для чекпойнта — последнюю бесплатную
                 const v =
                   m.type === "Checkpoint"

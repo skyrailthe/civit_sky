@@ -23,7 +23,8 @@ export interface FamilyPreset {
   label: string;
 }
 
-const PRESETS: Record<BaseFamily, FamilyPreset> = {
+// определяем только для поддерживаемых семейств; остальные → other (fallback)
+const PRESETS: Partial<Record<BaseFamily, FamilyPreset>> = {
   sd1: {
     baseSize: 512,
     cfg: 7,
@@ -90,7 +91,25 @@ const PRESETS: Record<BaseFamily, FamilyPreset> = {
 };
 
 export function presetFor(baseModel?: string): FamilyPreset {
-  return PRESETS[baseFamily(baseModel)];
+  const base = PRESETS[baseFamily(baseModel)] ?? PRESETS.other!;
+  // «Быстрые» варианты (Lightning/Hyper/LCM/Turbo) требуют мало шагов и низкий CFG,
+  // иначе получается пересвет/каша. Определяем по строке baseModel.
+  const b = (baseModel ?? "").toLowerCase();
+  const isFast =
+    b.includes("lightning") ||
+    b.includes("hyper") ||
+    b.includes("lcm") ||
+    b.includes("turbo");
+  if (isFast) {
+    return {
+      ...base,
+      steps: 8,
+      cfg: 2,
+      sampler: b.includes("lcm") ? "lcm" : base.sampler,
+      label: base.label + " (fast)",
+    };
+  }
+  return base;
 }
 
 /** Размеры под формат, отмасштабированные от baseSize семейства. */
