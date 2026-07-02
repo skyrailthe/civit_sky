@@ -25,19 +25,36 @@ def _download(url: str, dest: str, token: str) -> None:
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
         return  # уже скачан (кеш воркера)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    headers = []
     tok = _resolve_token(token)
-    if tok:
-        headers = ["--header", f"Authorization: Bearer {tok}"]
-    # aria2c быстрый и умеет докачку; уже установлен в образе
+    # Civitai принимает токен и в query (?token=), и в заголовке — даём оба.
+    dl_url = url
+    if tok and "token=" not in url:
+        sep = "&" if "?" in url else "?"
+        dl_url = f"{url}{sep}token={tok}"
+    headers = ["--header", f"Authorization: Bearer {tok}"] if tok else []
     cmd = [
-        "aria2c", "-x", "8", "-s", "8", "--continue=true",
-        "-o", os.path.basename(dest), "-d", os.path.dirname(dest),
-        *headers, url,
+        "aria2c",
+        "-x", "8", "-s", "8",
+        "--continue=true",
+        "--max-tries=3",
+        "--retry-wait=3",
+        "--allow-overwrite=true",
+        "--auto-file-renaming=false",
+        "--check-certificate=false",
+        "-o", os.path.basename(dest),
+        "-d", os.path.dirname(dest),
+        *headers,
+        dl_url,
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0 or not os.path.exists(dest):
-        raise RuntimeError(f"UNET download failed: {res.stderr[-500:]}")
+    ok = os.path.exists(dest) and os.path.getsize(dest) > 0
+    if res.returncode != 0 or not ok:
+        # полный вывод aria2 (и stdout, и stderr) для точной диагностики
+        out = (res.stdout or "") + "\n" + (res.stderr or "")
+        raise RuntimeError(
+            f"UNET download failed (rc={res.returncode}, exists={os.path.exists(dest)}):\n"
+            + out[-1500:]
+        )
 
 
 class CivitskyFluxUNETLoader:
