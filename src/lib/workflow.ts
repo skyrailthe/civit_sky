@@ -1,5 +1,5 @@
 import type { GenerateRequest } from "./types";
-import { ASPECT_DIMENSIONS } from "./types";
+import { presetFor, dimensionsFor } from "./presets";
 
 /**
  * Сборка ComfyUI workflow (API-формат) под ноды EasyCivitai-XTNodes:
@@ -27,10 +27,21 @@ export function civitaiPageUrl(modelId: number, modelVersionId: number): string 
 }
 
 export function buildComfyWorkflow(req: GenerateRequest): Workflow {
-  const dims = ASPECT_DIMENSIONS[req.aspectRatio];
+  // пресет по семейству чекпойнта (размер/CFG/шаги/sampler + добавки к промту)
+  const preset = presetFor(req.checkpoint.baseModel);
+  const dims = dimensionsFor(req.checkpoint.baseModel, req.aspectRatio);
   const seed = req.seed ?? Math.floor(Math.random() * 2 ** 32);
-  const steps = req.steps ?? 28;
-  const cfg = req.cfgScale ?? 6;
+  // пользовательские значения имеют приоритет над пресетом
+  const steps = req.steps ?? preset.steps;
+  const cfg = req.cfgScale ?? preset.cfg;
+
+  // префиксы семейства (Pony/Illustrious требуют quality-теги)
+  const positivePrompt = [preset.promptPrefix, req.prompt]
+    .filter((s) => s && s.trim())
+    .join(", ");
+  const negativePrompt = [preset.negativePrefix, req.negativePrompt]
+    .filter((s) => s && s.trim())
+    .join(", ");
 
   const wf: Workflow = {};
   let id = 0;
@@ -81,13 +92,13 @@ export function buildComfyWorkflow(req: GenerateRequest): Workflow {
   const posId = nextId();
   wf[posId] = {
     class_type: "CLIPTextEncode",
-    inputs: { text: req.prompt, clip: clipRef },
+    inputs: { text: positivePrompt, clip: clipRef },
   };
 
   const negId = nextId();
   wf[negId] = {
     class_type: "CLIPTextEncode",
-    inputs: { text: req.negativePrompt ?? "", clip: clipRef },
+    inputs: { text: negativePrompt, clip: clipRef },
   };
 
   // --- 4. Латент нужного размера ---
@@ -107,8 +118,8 @@ export function buildComfyWorkflow(req: GenerateRequest): Workflow {
       seed,
       steps,
       cfg,
-      sampler_name: "dpmpp_2m",
-      scheduler: "karras",
+      sampler_name: preset.sampler,
+      scheduler: preset.scheduler,
       denoise: 1,
       model: modelRef,
       positive: [posId, 0],

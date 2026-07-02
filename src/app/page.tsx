@@ -11,6 +11,7 @@ import type {
   JobStatus,
 } from "@/lib/types";
 import { isCompatible, incompatibilityReason } from "@/lib/compatibility";
+import { presetFor } from "@/lib/presets";
 
 const RATIOS: AspectRatio[] = ["2:3", "1:1", "3:2"];
 
@@ -275,6 +276,10 @@ export default function Home() {
       preview: previewImage(v) ?? previewImage(allVersions[0]),
       versions: allVersions,
     });
+    // подставляем дефолты пресета семейства (steps/CFG)
+    const preset = presetFor(v.baseModel);
+    setSteps(preset.steps);
+    setCfg(preset.cfg);
     // выкидываем доп. источники, которые стали несовместимы с новой базой
     setExtras((prev) => {
       const kept = prev.filter((e) => isCompatible(v.baseModel, e.baseModel));
@@ -553,7 +558,10 @@ export default function Home() {
                 )}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14 }}>{checkpoint.name}</div>
-                  <div className="card-meta">{checkpoint.baseModel}</div>
+                  <div className="card-meta">
+                    {checkpoint.baseModel} · пресет:{" "}
+                    {presetFor(checkpoint.baseModel).label}
+                  </div>
                 </div>
               </div>
             ) : (
