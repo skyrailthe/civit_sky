@@ -40,9 +40,11 @@ export function baseFamily(baseModel?: string): BaseFamily {
  * Правила:
  *  - Точное совпадение семейства → совместимо.
  *  - Pony/Illustrious/NoobAI считаем взаимно совместимыми внутри "pony".
- *  - SDXL-чекпойнт + LoRA семейства "pony": помечаем как НЕ совместимо
- *    (часто ломается; пусть пользователь осознанно подбирает).
- *  - "other" (неизвестно) → разрешаем, но это «жёлтая зона».
+ *  - Разные семейства → НЕ совместимо.
+ *  - Неизвестная архитектура ресурса ("other": Anima, ZImageBase, LTXV,
+ *    Wan и т.п.) → НЕ совместимо. Такие LoRA раньше проскакивали и портили
+ *    композицию (дубли/двоение), т.к. их веса не подходят к SDXL/Pony/SD1.5.
+ *    Если у чекпойнта база неизвестна — сравнить не с чем, разрешаем.
  */
 export function isCompatible(
   ckptBase: string | undefined,
@@ -50,7 +52,10 @@ export function isCompatible(
 ): boolean {
   const c = baseFamily(ckptBase);
   const e = baseFamily(extraBase);
-  if (c === "other" || e === "other") return true; // не знаем — не блокируем
+  // база чекпойнта неизвестна — сравнивать не с чем, не блокируем
+  if (c === "other") return true;
+  // ресурс неизвестной архитектуры к известной модели — блокируем
+  if (e === "other") return false;
   return c === e;
 }
 
