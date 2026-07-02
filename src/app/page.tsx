@@ -465,6 +465,13 @@ export default function Home() {
       setError("Введи промт");
       return;
     }
+    // модели Civitai понимают только английский — блокируем кириллицу
+    if (/[а-яё]/i.test(prompt) || /[а-яё]/i.test(negative)) {
+      setError(
+        "Промт должен быть на английском — модели не понимают русский. Например: 1 man, forest, beard, holding an axe"
+      );
+      return;
+    }
     setError(null);
     setJob(null);
     setGenerating(true);
@@ -602,18 +609,25 @@ export default function Home() {
               style={{ minHeight: 52 }}
             />
 
-            <div className="label">Промт</div>
+            <div className="label">Промт (только на английском)</div>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="что нарисовать…"
+              placeholder="например: 1 man, forest, beard, holding an axe"
+              className={/[а-яё]/i.test(prompt) ? "input-error" : ""}
             />
+            {/[а-яё]/i.test(prompt) && (
+              <div className="field-hint-error">
+                Только английский — модели не понимают русский
+              </div>
+            )}
 
             <div className="label">Негативный промт</div>
             <textarea
               value={negative}
               onChange={(e) => setNegative(e.target.value)}
-              placeholder="чего избегать…"
+              placeholder="например: blurry, low quality, extra limbs"
+              className={/[а-яё]/i.test(negative) ? "input-error" : ""}
             />
 
             <div className="label">Формат</div>
@@ -690,7 +704,12 @@ export default function Home() {
               <button
                 className="btn"
                 onClick={generate}
-                disabled={generating || !checkpoint}
+                disabled={
+                  generating ||
+                  !checkpoint ||
+                  /[а-яё]/i.test(prompt) ||
+                  /[а-яё]/i.test(negative)
+                }
               >
                 {generating ? "Генерация…" : "Сгенерировать"}
               </button>

@@ -144,6 +144,16 @@ textarea {
   cursor: not-allowed;
 }
 
+.input-error {
+  border-color: #ff6b6b !important;
+}
+
+.field-hint-error {
+  color: #ff6b6b;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
 .btn-sm {
   width: auto;
   padding: 6px 10px;
